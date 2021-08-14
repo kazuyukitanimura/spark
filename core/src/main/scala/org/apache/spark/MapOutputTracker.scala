@@ -123,14 +123,14 @@ private class ShuffleStatus(
    * broadcast variable in order to keep it from being garbage collected and to allow for it to be
    * explicitly destroyed later on when the ShuffleMapStage is garbage-collected.
    */
-  private[spark] var cachedSerializedBroadcast: Broadcast[Array[Array[Byte]]] = _
+  private[spark] var cachedSerializedBroadcast: Broadcast[Array[Byte]] = _
 
   /**
    * Similar to cachedSerializedMapStatus and cachedSerializedBroadcast, but for MergeStatus.
    */
   private[this] var cachedSerializedMergeStatus: Array[Byte] = _
 
-  private[this] var cachedSerializedBroadcastMergeStatus: Broadcast[Array[Array[Byte]]] = _
+  private[this] var cachedSerializedBroadcastMergeStatus: Broadcast[Array[Byte]] = _
 
   /**
    * Counter tracking the number of partitions that have output. This is a performance optimization
@@ -1320,7 +1320,7 @@ private[spark] object MapOutputTracker extends Logging {
       broadcastManager: BroadcastManager,
       isLocal: Boolean,
       minBroadcastSize: Int,
-      conf: SparkConf): (Array[Byte], Broadcast[Array[Array[Byte]]]) = {
+      conf: SparkConf): (Array[Byte], Broadcast[Array[Byte]]) = {
     val out = new ApacheByteArrayOutputStream()
     out.write(DIRECT)
     val codec = CompressionCodec.createCodec(conf, conf.get(MAP_STATUS_COMPRESSION_CODEC))
@@ -1337,7 +1337,7 @@ private[spark] object MapOutputTracker extends Logging {
     if (arr.length >= minBroadcastSize) {
       // Use broadcast instead.
       // Important arr(0) is the tag == DIRECT, ignore that while deserializing !
-      val bcast = broadcastManager.newBroadcast(Array(arr), isLocal)
+      val bcast = broadcastManager.newBroadcast(arr, isLocal)
       out.reset()
       out.write(BROADCAST)
       val oos = new ObjectOutputStream(codec.compressedOutputStream(out))
@@ -1379,11 +1379,11 @@ private[spark] object MapOutputTracker extends Logging {
       case BROADCAST =>
         try {
           // deserialize the Broadcast, pull .value array out of it, and then deserialize that
-          val bcast = deserializeObject(in).asInstanceOf[Broadcast[Array[Array[Byte]]]]
+          val bcast = deserializeObject(in).asInstanceOf[Broadcast[Array[Byte]]]
           logInfo("Broadcast outputstatuses size = " + bytes.length +
-            ", actual size = " + bcast.value.foldLeft(0L)(_ + _.length))
+            ", actual size = " + bcast.value.length)
           // Important - ignore the DIRECT tag ! Start from offset 1
-          val bcastIn = new ByteArrayInputStream(bcast.value(0), 1, bcast.value(0).length-1)
+          val bcastIn = new ByteArrayInputStream(bcast.value, 1, bcast.value.length-1)
           deserializeObject(bcastIn).asInstanceOf[Array[T]]
         } catch {
           case e: IOException =>

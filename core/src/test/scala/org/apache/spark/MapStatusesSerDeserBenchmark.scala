@@ -71,7 +71,7 @@ object MapStatusesSerDeserBenchmark extends BenchmarkBase {
       sc.getConf)
     serializedMapStatusSizes = serializedMapStatus.length
     if (serializedBroadcast != null) {
-      serializedBroadcastSizes = serializedBroadcast.value.foldLeft(0L)(_ + _.length)
+      serializedBroadcastSizes = serializedBroadcast.value.length
     }
 
     benchmark.addCase("Serialization") { _ =>
