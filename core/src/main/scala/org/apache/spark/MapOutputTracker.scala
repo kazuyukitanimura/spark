@@ -17,8 +17,7 @@
 
 package org.apache.spark
 
-import java.io.{ByteArrayInputStream, InputStream, IOException, ObjectInputStream, ObjectOutputStream}
-// import java.nio.ByteBuffer
+import java.io.{ByteArrayInputStream, IOException, ObjectInputStream, ObjectOutputStream}
 import java.util.concurrent.{ConcurrentHashMap, LinkedBlockingQueue, ThreadPoolExecutor, TimeUnit}
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
@@ -1359,12 +1358,13 @@ private[spark] object MapOutputTracker extends Logging {
       bytes: Array[Byte], conf: SparkConf): Array[T] = {
     assert (bytes.length > 0)
 
-    def deserializeObject(in: InputStream): AnyRef = {
+    def deserializeObject(arr: Array[Byte], off: Int, len: Int): AnyRef = {
       val codec = CompressionCodec.createCodec(conf, conf.get(MAP_STATUS_COMPRESSION_CODEC))
       // The ZStd codec is wrapped in a `BufferedInputStream` which avoids overhead excessive
       // of JNI call while trying to decompress small amount of data for each element
       // of `MapStatuses`
-      val objIn = new ObjectInputStream(codec.compressedInputStream(in))
+      val objIn = new ObjectInputStream(codec.compressedInputStream(
+        new ByteArrayInputStream(arr, off, len)))
       Utils.tryWithSafeFinally {
         objIn.readObject()
       } {
@@ -1372,19 +1372,18 @@ private[spark] object MapOutputTracker extends Logging {
       }
     }
 
-    val in = new ByteArrayInputStream(bytes, 1, bytes.length - 1)
     bytes(0) match {
       case DIRECT =>
-        deserializeObject(in).asInstanceOf[Array[T]]
+        deserializeObject(bytes, 1, bytes.length - 1).asInstanceOf[Array[T]]
       case BROADCAST =>
         try {
           // deserialize the Broadcast, pull .value array out of it, and then deserialize that
-          val bcast = deserializeObject(in).asInstanceOf[Broadcast[Array[Byte]]]
+          val bcast = deserializeObject(bytes, 1, bytes.length - 1).
+            asInstanceOf[Broadcast[Array[Byte]]]
           logInfo("Broadcast outputstatuses size = " + bytes.length +
             ", actual size = " + bcast.value.length)
           // Important - ignore the DIRECT tag ! Start from offset 1
-          val bcastIn = new ByteArrayInputStream(bcast.value, 1, bcast.value.length-1)
-          deserializeObject(bcastIn).asInstanceOf[Array[T]]
+          deserializeObject(bcast.value, 1, bcast.value.length - 1).asInstanceOf[Array[T]]
         } catch {
           case e: IOException =>
             logWarning("Exception encountered during deserializing broadcasted" +
