@@ -18,7 +18,7 @@
 package org.apache.spark
 
 import java.io.{ByteArrayInputStream, InputStream, IOException, ObjectInputStream, ObjectOutputStream}
-import java.nio.ByteBuffer
+// import java.nio.ByteBuffer
 import java.util.concurrent.{ConcurrentHashMap, LinkedBlockingQueue, ThreadPoolExecutor, TimeUnit}
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
@@ -41,7 +41,7 @@ import org.apache.spark.scheduler.{MapStatus, MergeStatus, ShuffleOutputStatus}
 import org.apache.spark.shuffle.MetadataFetchFailedException
 import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId, ShuffleMergedBlockId}
 import org.apache.spark.util._
-import org.apache.spark.util.io.{ChunkedByteBuffer, ChunkedByteBufferOutputStream}
+// import org.apache.spark.util.io.{ChunkedByteBuffer, ChunkedByteBufferOutputStream}
 
 /**
  * Helper class used by the [[MapOutputTrackerMaster]] to perform bookkeeping for a single
@@ -1322,7 +1322,8 @@ private[spark] object MapOutputTracker extends Logging {
       minBroadcastSize: Int,
       conf: SparkConf): (Array[Byte], Broadcast[Array[Array[Byte]]]) = {
     // ByteArrayOutputStream has the 2GB limit so use ChunkedByteBufferOutputStream instead
-    val out = new ChunkedByteBufferOutputStream(1024 * 1024, ByteBuffer.allocate)
+    // val out = new ChunkedByteBufferOutputStream(1024 * 1024, ByteBuffer.allocate)
+    val out = new ApacheByteArrayOutputStream()
     out.write(DIRECT)
     val codec = CompressionCodec.createCodec(conf, conf.get(MAP_STATUS_COMPRESSION_CODEC))
     val objOut = new ObjectOutputStream(codec.compressedOutputStream(out))
@@ -1334,19 +1335,32 @@ private[spark] object MapOutputTracker extends Logging {
     } {
       objOut.close()
     }
-    val chunkedByteBuf = out.toChunkedByteBuffer
-    val arrSize = out.size
+    // val chunkedByteBuf = out.toChunkedByteBuffer
+    // val arrSize = out.size
+    val arrBulider = Array.newBuilder[Array[Byte]]
+    var arrSize = 0L
+    val in = out.toInputStream
+    var b = 0
+    do {
+      val arr = new Array[Byte](1024 * 1024)
+      b = in.read(arr)
+      arrBulider += arr.take(b)
+      arrSize += b
+    } while (b > 0)
+    in.close()
+    val arr = arrBulider.result()
     if (arrSize >= minBroadcastSize) {
       // Use broadcast instead.
       // Important arr(0) is the tag == DIRECT, ignore that while deserializing !
       // arr is a nested Array so that it can handle over 2GB serialized data
-      val arr = chunkedByteBuf.getChunks().map(_.array())
+      // val arr = chunkedByteBuf.getChunks().map(_.array())
       val bcast = broadcastManager.newBroadcast(arr, isLocal)
       // Using `org.apache.commons.io.output.ByteArrayOutputStream` instead of the standard one
       // This implementation doesn't reallocate the whole memory block but allocates
       // additional buffers. This way no buffers need to be garbage collected and
       // the contents don't have to be copied to the new buffer.
-      val out = new ApacheByteArrayOutputStream()
+      // val out = new ApacheByteArrayOutputStream()
+      out.reset()
       out.write(BROADCAST)
       val oos = new ObjectOutputStream(codec.compressedOutputStream(out))
       Utils.tryWithSafeFinally {
@@ -1358,7 +1372,8 @@ private[spark] object MapOutputTracker extends Logging {
       logInfo("Broadcast outputstatuses size = " + outArr.length + ", actual size = " + arrSize)
       (outArr, bcast)
     } else {
-      (chunkedByteBuf.toArray, null)
+      // (chunkedByteBuf.toArray, null)
+      (out.toByteArray, null)
     }
   }
 
@@ -1390,7 +1405,13 @@ private[spark] object MapOutputTracker extends Logging {
           val bcast = deserializeObject(in).asInstanceOf[Broadcast[Array[Array[Byte]]]]
           logInfo("Broadcast outputstatuses size = " + bytes.length +
             ", actual size = " + bcast.value.foldLeft(0L)(_ + _.length))
-          val bcastIn = new ChunkedByteBuffer(bcast.value.map(ByteBuffer.wrap)).toInputStream()
+          // val bcastIn = new ChunkedByteBuffer(bcast.value.map(ByteBuffer.wrap)).toInputStream()
+          val out = new ApacheByteArrayOutputStream()
+          for (arr <- bcast.value) {
+            out.write(arr)
+          }
+          val bcastIn = out.toInputStream
+          out.close()
           // Important - ignore the DIRECT tag ! Start from offset 1
           bcastIn.skip(1)
           deserializeObject(bcastIn).asInstanceOf[Array[T]]
