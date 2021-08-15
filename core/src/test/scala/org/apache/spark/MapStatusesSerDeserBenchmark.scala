@@ -64,7 +64,7 @@ object MapStatusesSerDeserBenchmark extends BenchmarkBase {
     val shuffleStatus = tracker.shuffleStatuses.get(shuffleId).head
 
     var serializedMapStatusSizes = 0
-    var serializedBroadcastSizes = 0L
+    var serializedBroadcastSizes = 0
 
     val (serializedMapStatus, serializedBroadcast) = MapOutputTracker.serializeOutputStatuses(
       shuffleStatus.mapStatuses, tracker.broadcastManager, tracker.isLocal, minBroadcastSize,

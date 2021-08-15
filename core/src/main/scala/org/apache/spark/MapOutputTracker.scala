@@ -40,7 +40,8 @@ import org.apache.spark.scheduler.{MapStatus, MergeStatus, ShuffleOutputStatus}
 import org.apache.spark.shuffle.MetadataFetchFailedException
 import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId, ShuffleMergedBlockId}
 import org.apache.spark.util._
-// import org.apache.spark.util.io.{ChunkedByteBuffer, ChunkedByteBufferOutputStream}
+
+// test build
 
 /**
  * Helper class used by the [[MapOutputTrackerMaster]] to perform bookkeeping for a single
@@ -1320,6 +1321,10 @@ private[spark] object MapOutputTracker extends Logging {
       isLocal: Boolean,
       minBroadcastSize: Int,
       conf: SparkConf): (Array[Byte], Broadcast[Array[Byte]]) = {
+    // Using `org.apache.commons.io.output.ByteArrayOutputStream` instead of the standard one
+    // This implementation doesn't reallocate the whole memory block but allocates
+    // additional buffers. This way no buffers need to be garbage collected and
+    // the contents don't have to be copied to the new buffer.
     val out = new ApacheByteArrayOutputStream()
     out.write(DIRECT)
     val codec = CompressionCodec.createCodec(conf, conf.get(MAP_STATUS_COMPRESSION_CODEC))
@@ -1337,6 +1342,7 @@ private[spark] object MapOutputTracker extends Logging {
       // Use broadcast instead.
       // Important arr(0) is the tag == DIRECT, ignore that while deserializing !
       val bcast = broadcastManager.newBroadcast(arr, isLocal)
+      // toByteArray creates copy, so we can reuse out
       out.reset()
       out.write(BROADCAST)
       val oos = new ObjectOutputStream(codec.compressedOutputStream(out))
